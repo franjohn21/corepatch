@@ -1,0 +1,32 @@
+[
+{
+  "id": "SOMETHING_IS_WRONG_WITH_ME",
+  "title": "Something is wrong with me",
+  "description": "A deep-seated belief that you’re fundamentally flawed.",
+  "counterBelief": "Something is right with me"
+},
+{
+  "id": "PEOPLE_ALWAYS_LEAVE_ME",
+  "title": "People always leave me",
+  "description": "Fear of abandonment originating in early relationships.",
+  "counterBelief": "I’m worthy of lasting connection"
+},
+{
+  "id": "I_CANT_TRUST_ANYONE",
+  "title": "I can’t trust anyone",
+  "description": "A protective pattern built on past betrayals.",
+  "counterBelief": "I can trust wisely and safely"
+},
+{
+  "id": "IM_NOT_GOOD_ENOUGH",
+  "title": "I’m not good enough",
+  "description": "Perfectionism and chronic self-criticism.",
+  "counterBelief": "I’m already enough"
+},
+{
+  "id": "I_HAVE_NO_CONTROL",
+  "title": "I have no control",
+  "description": "Feeling powerless or at the mercy of events.",
+  "counterBelief": "I influence my life through my choices"
+}
+]

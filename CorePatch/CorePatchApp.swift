@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct CorePatchApp: App {
@@ -13,5 +14,6 @@ struct CorePatchApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [UserCoreWound.self, CorePatchEntry.self])
     }
 }

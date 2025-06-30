@@ -5,20 +5,59 @@
 //  Created by Francis John on 6/25/25.
 //
 
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @Environment(\.modelContext) private var context
+    @Query(filter: #Predicate<UserCoreWound> { $0.isActive == true })
+    private var activeWounds: [UserCoreWound]
 
-#Preview {
-    ContentView()
+    @State private var showCoreWoundSheet = false
+    @State private var showingSettings = false
+
+    var body: some View {
+        NavigationStack {
+            TabView {
+                HomeView()
+                    .tabItem {
+                        Image(systemName: "house")
+                        Text("Home")
+                    }
+
+                ChatView()
+                    .tabItem {
+                        Image(systemName: "message")
+                        Text("Chat")
+                    }
+
+                HistoryView()
+                    .tabItem {
+                        Image(systemName: "clock.arrow.circlepath")
+                        Text("History")
+                    }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showCoreWoundSheet) {
+            CoreWoundSelectionView()
+        }
+        .sheet(isPresented: $showingSettings) {
+            AppSettingsView()
+        }
+        .onAppear { updateSheetState() }
+        .onChange(of: activeWounds) { _, _ in updateSheetState() }
+    }
+
+    private func updateSheetState() {
+        showCoreWoundSheet = activeWounds.isEmpty
+    }
 }

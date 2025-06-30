@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		873D2B172E1266A40024AA20 /* RichTextKit in Frameworks */ = {isa = PBXBuildFile; productRef = 873D2B162E1266A40024AA20 /* RichTextKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		873D2A612E0CC07C0024AA20 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				873D2B172E1266A40024AA20 /* RichTextKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 				873D2A522E0CC07A0024AA20 /* CorePatch */,
 				873D2A632E0CC07C0024AA20 /* CorePatchTests */,
 				873D2A6D2E0CC07C0024AA20 /* CorePatchUITests */,
+				873D2B152E1266A40024AA20 /* Frameworks */,
 				873D2A512E0CC07A0024AA20 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +96,13 @@
 				873D2A6A2E0CC07C0024AA20 /* CorePatchUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		873D2B152E1266A40024AA20 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +125,7 @@
 			);
 			name = CorePatch;
 			packageProductDependencies = (
+				873D2B162E1266A40024AA20 /* RichTextKit */,
 			);
 			productName = CorePatch;
 			productReference = 873D2A502E0CC07A0024AA20 /* CorePatch.app */;
@@ -195,6 +209,9 @@
 			);
 			mainGroup = 873D2A472E0CC07A0024AA20;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				873D2B142E12508C0024AA20 /* XCRemoteSwiftPackageReference "RichTextKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 873D2A512E0CC07A0024AA20 /* Products */;
 			projectDirPath = "";
@@ -558,6 +575,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		873D2B142E12508C0024AA20 /* XCRemoteSwiftPackageReference "RichTextKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/danielsaidi/RichTextKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		873D2B162E1266A40024AA20 /* RichTextKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 873D2B142E12508C0024AA20 /* XCRemoteSwiftPackageReference "RichTextKit" */;
+			productName = RichTextKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 873D2A482E0CC07A0024AA20 /* Project object */;
 }
