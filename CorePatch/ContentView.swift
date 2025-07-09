@@ -25,16 +25,16 @@ struct ContentView: View {
                         Text("Home")
                     }
 
+                HistoryView()
+                    .tabItem {
+                        Image(systemName: "calendar")
+                        Text("Progress")
+                    }
+
                 ChatView()
                     .tabItem {
                         Image(systemName: "message")
                         Text("Chat")
-                    }
-
-                HistoryView()
-                    .tabItem {
-                        Image(systemName: "clock.arrow.circlepath")
-                        Text("History")
                     }
             }
             .toolbar {

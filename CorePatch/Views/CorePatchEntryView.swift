@@ -1,10 +1,10 @@
 import SwiftUI
 import SwiftData
-import RichTextKit
 
 struct CorePatchEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var feedbackManager: FeedbackManagerWrapper
 
     // Fetch the active wound once
     @Query(filter: #Predicate<UserCoreWound> { $0.isActive == true })
@@ -17,13 +17,9 @@ struct CorePatchEntryView: View {
     @State private var selectedIndex: Int = 0
     @State private var currentCategory: Category = Category.allCases[0]
     @State private var currentText: String = ""
-    @State private var attributedText = NSAttributedString(string: "")
     @FocusState private var isTextEditorFocused: Bool
-    private let textState = TextState.shared
     @State private var navigationTrigger = 0
-    @StateObject private var richTextContext = RichTextContext()
-    @State private var currentSessionTexts: [Category: String] = [:]
-    @State private var targetDatePersistedEntries: [Category: CorePatchEntry] = [:]
+    @State private var currentEntry: CorePatchEntry? = nil
     @State private var autosaveTask: Task<Void, Never>? = nil
     private let autosaveDelay: Duration = .seconds(0.6)
 
@@ -32,7 +28,7 @@ struct CorePatchEntryView: View {
     // Simple computed property that mirrors React's derived state
     private var isCurrentCategoryCompleted: Bool {
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let persistedText = targetDatePersistedEntries[currentCategory]?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let persistedText = currentEntry?.getText(for: currentCategory).trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !text.isEmpty || !persistedText.isEmpty
     }
 
@@ -43,7 +39,12 @@ struct CorePatchEntryView: View {
         print("DEBUG updateCompletionCache called")
         var cache: [Category: Bool] = [:]
         for category in categories {
-            let text = textState.getText(for: category).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Check current editing text if this is the current category
+            let text = if category == currentCategory {
+                currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                currentEntry?.getText(for: category).trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
             cache[category] = !text.isEmpty
         }
         print("DEBUG: Setting completionCache = \(cache)")
@@ -73,22 +74,94 @@ struct CorePatchEntryView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
-                categoryGrid
-                categoryPrompt
-                textEditor
-                Spacer()
-                nextButton
+            Group {
+                if currentEntry?.isLocked == true {
+                    // Locked view with feedback
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // Lock indicator
+                            HStack {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.secondary)
+                                Text("This entry has been completed")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top)
+                            
+                            categoryGrid
+                            
+                            // Show feedback
+                            if let feedback = currentEntry?.feedback {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Label("AI Feedback", systemImage: "sparkles")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    
+                                    Text(feedback)
+                                        .font(.body)
+                                        .foregroundColor(.primary)
+                                        .padding()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(.systemGray6))
+                                        .cornerRadius(12)
+                                    
+                                    if let generatedAt = currentEntry?.feedbackGeneratedAt {
+                                        Text("Generated \(generatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.top)
+                            }
+                            
+                            // Show all category texts in read-only mode
+                            ForEach(categories, id: \.self) { category in
+                                if let text = currentEntry?.getText(for: category),
+                                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack {
+                                            Text(category.emoji)
+                                            Text(category.displayName)
+                                                .font(.headline)
+                                        }
+                                        
+                                        Text(text)
+                                            .font(.body)
+                                            .padding()
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .background(Color(.systemGray6))
+                                            .cornerRadius(8)
+                                    }
+                                }
+                            }
+                            
+                            Spacer(minLength: 40)
+                        }
+                        .padding()
+                    }
+                } else {
+                    // Editable view
+                    VStack(spacing: 20) {
+                        categoryGrid
+                        categoryPrompt
+                        textEditor
+                        Spacer()
+                        nextButton
+                    }
+                    .padding()
+                }
             }
-            .padding()
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
-            .toolbar {
+            .toolbar {  
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Back") { 
-                        // Save current attributed text before leaving
-                        textState.setText(attributedText.string, for: currentCategory)
-                        textState.saveToStorage(for: currentCategory)
+                        // Save current text before leaving
+                        if currentEntry?.isLocked != true {
+                            saveCurrentCategoryText()
+                            queueFeedbackIfNeeded()
+                        }
                         dismiss()
                     }
                 }
@@ -101,9 +174,7 @@ struct CorePatchEntryView: View {
             }
             .onAppear {
                 cachedActiveWound = activeWounds.first
-                if let wound = cachedActiveWound {
-                    textState.setup(context: context, woundID: wound.woundID, date: targetDate)
-                }
+                // TextState setup no longer needed with new model
             }
             .onChange(of: activeWounds) { _, newWounds in
                 cachedActiveWound = newWounds.first
@@ -118,12 +189,12 @@ struct CorePatchEntryView: View {
     }
     
     private var categoryGrid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
-        return LazyVGrid(columns: columns, spacing: 12) {
+        HStack(spacing: 8) {
             ForEach(categories.indices, id: \.self) { idx in
                 categoryButton(for: idx)
             }
         }
+        .frame(height: 44)
     }
     
     private func categoryButton(for idx: Int) -> some View {
@@ -131,32 +202,30 @@ struct CorePatchEntryView: View {
         let isCompleted = isCategoryCompleted(cat)
         
         return Button {
-            // Save current attributed text before switching
-            textState.setText(attributedText.string, for: currentCategory)
+            guard currentEntry?.isLocked != true else { return }
+            
+            print("categoryButton: Switching from \(currentCategory) to \(cat)")
+            
+            // Save current text before switching
+            saveCurrentCategoryText()
             
             selectedIndex = idx
             currentCategory = cat
-            let plainText = textState.getText(for: cat)
-            currentText = plainText
-            attributedText = NSAttributedString(string: plainText)
+            let loadedText = currentEntry?.getText(for: cat) ?? ""
+            currentText = loadedText
+            print("categoryButton: Loaded text for \(cat): '\(loadedText)'")
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: isCompleted ? "checkmark.circle.fill" : cat.iconName)
-                    .font(.title2)
-                    .foregroundStyle(isCompleted ? Color.green : (selectedIndex == idx ? Color.white : Color.primary))
-
-                Text(cat.displayName)
-                    .font(.caption)
-            }
-            .padding()
-            .frame(maxWidth: .infinity, minHeight: 60)
-            .background(selectedIndex == idx ? Color.accentColor : Color(.systemBackground))
-            .foregroundStyle(selectedIndex == idx ? Color.white : Color.primary)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-            )
+            Image(systemName: isCompleted ? "checkmark.circle.fill" : cat.iconName)
+                .font(.title3)
+                .foregroundStyle(isCompleted ? Color.green : (selectedIndex == idx ? Color.white : Color.primary))
+                .frame(width: 44, height: 44)
+                .background(selectedIndex == idx ? Color.accentColor : Color(.systemGray6))
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: selectedIndex == idx ? 0 : 1)
+                )
+                .opacity(currentEntry?.isLocked == true ? 0.6 : 1.0)
         }
     }
     
@@ -175,51 +244,18 @@ struct CorePatchEntryView: View {
     }
     
     private var textEditor: some View {
-        VStack(spacing: 8) {
-            // Rich text formatting toolbar
-            HStack(spacing: 16) {
-                Button("B") {
-                    richTextContext.toggleStyle(.bold)
-                }
-                .fontWeight(.bold)
-                
-                Button("I") {
-                    richTextContext.toggleStyle(.italic)
-                }
-                .italic()
-                
-                Button("•") {
-                    // Add bullet point at new line
-                    let bullet = attributedText.string.isEmpty ? "• " : "\n• "
-                    let newText = NSMutableAttributedString(attributedString: attributedText)
-                    newText.append(NSAttributedString(string: bullet))
-                    attributedText = newText
-                }
-                .font(.title2)
-                
-                Button("\"") {
-                    // Insert quote prefix
-                    let quote = "> "
-                    let newText = NSMutableAttributedString(attributedString: attributedText)
-                    newText.append(NSAttributedString(string: quote))
-                    attributedText = newText
-                }
-                .font(.title3)
-                
-                Spacer()
+        TextEditor(text: $currentText)
+            .focused($isTextEditorFocused)
+            .id(currentCategory) // Force complete re-render on category change (like React key)
+            .frame(minHeight: 120, maxHeight: 200)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.3))
+            )
+            .onChange(of: currentText) { _, newValue in
+                updateCompletionCache()
+                scheduleAutosave()
             }
-            .padding(.horizontal)
-            
-            // Rich text editor
-            RichTextEditor(text: $attributedText, context: richTextContext)
-                .focused($isTextEditorFocused)
-                .id(currentCategory) // Force complete re-render on category change (like React key)
-                .frame(minHeight: 120, maxHeight: 200)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.3))
-                )
-        }
     }
     
     private var nextButton: some View {
@@ -256,30 +292,53 @@ struct CorePatchEntryView: View {
         }
         let descriptor = FetchDescriptor<CorePatchEntry>(predicate: predicate)
 
-        var fetchedEntriesMap: [Category: CorePatchEntry] = [:]
-        var sessionTextsMap: [Category: String] = [:]
-
-        if let fetched = try? context.fetch(descriptor) {
-            for entry in fetched {
-                fetchedEntriesMap[entry.category] = entry
-                sessionTextsMap[entry.category] = entry.text
+        // Fetch or create single entry for the target date
+        let entry: CorePatchEntry
+        if let fetched = try? context.fetch(descriptor), let existingEntry = fetched.first {
+            print("loadEntriesForTargetDate: Found existing entry with \(existingEntry.completedCategories.count) completed categories")
+            print("loadEntriesForTargetDate: Entry contents:")
+            for cat in Category.allCases {
+                let text = existingEntry.getText(for: cat)
+                if !text.isEmpty {
+                    print("  - \(cat): '\(text)'")
+                }
             }
-        }
-        
-        if fetchedEntriesMap.isEmpty {
-            print("loadEntriesForTargetDate: No entries fetched from SwiftData for wound \(unwrappedActiveWound.woundID) on \(targetDate.formatted(date: .numeric, time: .omitted)).")
+            entry = existingEntry
         } else {
-            print("loadEntriesForTargetDate: Fetched \(fetchedEntriesMap.count) entries.")
+            print("loadEntriesForTargetDate: Creating new entry for \(targetDate.formatted(date: .numeric, time: .omitted))")
+            let newEntry = CorePatchEntry(woundID: unwrappedActiveWound.woundID, createdAt: capturedDayStart)
+            context.insert(newEntry)
+            
+            // Save immediately to ensure it's persisted
+            do {
+                try context.save()
+                print("loadEntriesForTargetDate: New entry saved to database")
+            } catch {
+                print("loadEntriesForTargetDate: Error saving new entry - \(error)")
+            }
+            
+            entry = newEntry
         }
         
         await MainActor.run {
-            self.targetDatePersistedEntries = fetchedEntriesMap
-            self.currentSessionTexts = sessionTextsMap
-            self.currentCategory = categories[selectedIndex]
-            let plainText = sessionTextsMap[self.currentCategory] ?? ""
-            self.currentText = plainText
-            self.attributedText = NSAttributedString(string: plainText)
+            self.currentEntry = entry
             self.updateCompletionCache()
+            
+            // Find first uncompleted category
+            if let firstIncomplete = categories.firstIndex(where: { category in
+                let text = entry.getText(for: category).trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty
+            }) {
+                self.selectedIndex = firstIncomplete
+                self.currentCategory = categories[firstIncomplete]
+            } else {
+                // All completed, stay on first
+                self.selectedIndex = 0
+                self.currentCategory = categories[0]
+            }
+            
+            self.currentText = entry.getText(for: self.currentCategory)
+            print("loadEntriesForTargetDate: Set currentText to '\(self.currentText)' for category \(self.currentCategory)")
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.isTextEditorFocused = true
@@ -289,24 +348,48 @@ struct CorePatchEntryView: View {
 
     // MARK: – Navigation ---------------------------------------------------------
     private func advanceToNext() {
-        // Save current attributed text before advancing
-        textState.setText(attributedText.string, for: currentCategory)
+        // Save current text before advancing
+        saveCurrentCategoryText()
         
         if selectedIndex < categories.count - 1 {
             selectedIndex += 1
             currentCategory = categories[selectedIndex]
-            let plainText = textState.getText(for: currentCategory)
-            currentText = plainText
-            attributedText = NSAttributedString(string: plainText)
+            currentText = currentEntry?.getText(for: currentCategory) ?? ""
         } else {
+            queueFeedbackIfNeeded()
             dismiss()
         }
     }
     
     private func saveCurrentCategoryText() {
-        // Simple - just save to storage like localStorage.setItem()
-        textState.saveToStorage(for: currentCategory)
-        updateCompletionCache()
+        guard let entry = currentEntry else { 
+            print("saveCurrentCategoryText: No current entry!")
+            return 
+        }
+        
+        // Don't save if entry is locked
+        guard !entry.isLocked else {
+            print("saveCurrentCategoryText: Entry is locked, not saving")
+            return
+        }
+        
+        let trimmedText = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        print("saveCurrentCategoryText: Saving '\(trimmedText)' for category \(currentCategory)")
+        
+        // Save current text to the entry
+        entry.setText(currentText, for: currentCategory)
+        
+        // Verify the text was set
+        let savedText = entry.getText(for: currentCategory)
+        print("saveCurrentCategoryText: Verification - saved text is '\(savedText)'")
+        
+        do {
+            try context.save()
+            print("saveCurrentCategoryText: Successfully saved to SwiftData")
+            updateCompletionCache()
+        } catch {
+            print("saveCurrentCategoryText: ERROR – \(error.localizedDescription)")
+        }
     }
 
     private func scheduleAutosave() {
@@ -319,37 +402,51 @@ struct CorePatchEntryView: View {
 
     @MainActor
     private func autosaveCurrentText() {
-        guard let wound = cachedActiveWound else { return }
+        guard let entry = currentEntry else { return }
+        
+        // Don't autosave if entry is locked
+        guard !entry.isLocked else { return }
 
-        let trimmed = (currentSessionTexts[currentCategory] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingText = entry.getText(for: currentCategory).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let existing = targetDatePersistedEntries[currentCategory] {
-            if trimmed.isEmpty {
-                context.delete(existing)
-                targetDatePersistedEntries.removeValue(forKey: currentCategory)
-                currentSessionTexts.removeValue(forKey: currentCategory)
-            } else if existing.text != trimmed {
-                existing.text = trimmed
-            } else {
-                return   // no change
+        // Only save if text has changed
+        if trimmed != existingText {
+            entry.setText(trimmed, for: currentCategory)
+            
+            do {
+                try context.save()
+                print("autosaveCurrentText: Saved text for \(currentCategory).")
+                updateCompletionCache()
+            } catch {
+                print("autosaveCurrentText: ERROR – \(error.localizedDescription)")
             }
-        } else if !trimmed.isEmpty {
-            let newEntry = CorePatchEntry(text: trimmed,
-                                          category: currentCategory,
-                                          woundID: wound.woundID,
-                                          createdAt: Date())
-            context.insert(newEntry)
-            targetDatePersistedEntries[currentCategory] = newEntry
-        } else {
-            return       // nothing typed yet
         }
-
-        do {
-            try context.save()
-            print("autosaveCurrentText: Saved text for \(currentCategory.displayName).")
-            updateCompletionCache()
-        } catch {
-            print("autosaveCurrentText: ERROR – \(error.localizedDescription)")
+    }
+    
+    private func queueFeedbackIfNeeded() {
+        print("DEBUG: queueFeedbackIfNeeded called")
+        guard let entry = currentEntry else { 
+            print("DEBUG: No current entry")
+            return 
+        }
+        
+        // Don't queue if entry already has feedback
+        guard !entry.isLocked else {
+            print("DEBUG: Entry already has feedback, not queueing")
+            return
+        }
+        
+        // Save current text first
+        entry.setText(currentText, for: currentCategory)
+        
+        print("DEBUG: Found entry with \(entry.completedCategories.count) completed categories")
+        
+        if !entry.completedCategories.isEmpty {
+            print("DEBUG: Generating feedback for entry")
+            Task {
+                await feedbackManager.generateFeedback(for: entry)
+            }
         }
     }
 }

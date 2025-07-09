@@ -26,6 +26,19 @@ extension Category {
         }
     }
 
+    /// Description for each category
+    var description: String {
+        switch self {
+        case .career:     "Professional growth, work goals, and career development"
+        case .spiritual:  "Connection to purpose, meaning, and spiritual practices"
+        case .mental:     "Thoughts, mindset, learning, and cognitive wellbeing"
+        case .emotion:    "Feelings, emotional processing, and relationship with emotions"
+        case .physical:   "Health, fitness, body care, and physical activities"
+        case .social:     "Relationships, connections, and social interactions"
+        case .finances:   "Money management, financial goals, and economic wellbeing"
+        }
+    }
+
     /// SF-symbol for the tile (fallback if you prefer SF symbols)
     var iconName: String {
         switch self {

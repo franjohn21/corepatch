@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 import NaturalLanguage
 
 struct ChatView: View {
-    @State private var messages: [ChatMessage] = []
+    @Environment(\.modelContext) private var modelContext
+    @State private var chatManager: ChatManager?
     @State private var inputText = ""
     @State private var isTyping = false
     
@@ -26,23 +28,29 @@ struct ChatView: View {
                                 )
                             
                             // Welcome message
-                            if messages.isEmpty {
+                            if chatManager?.currentSession?.messages.isEmpty ?? true {
                                 ChatBubble(
                                     message: ChatMessage(
-                                        id: "welcome",
-                                        text: "Hey there! What's up? How can I help you today?",
-                                        isFromUser: false,
-                                        timestamp: Date()
-                                    )
+                                        content: "Hey there! What's up? How can I help you today?",
+                                        isFromUser: false
+                                    ),
+                                    showTimestamp: true
                                 )
                             }
                         }
                         .padding(.top, 20)
                         
-                        // Chat messages
-                        ForEach(messages) { message in
-                            ChatBubble(message: message)
-                                .id(message.id)
+                        // Chat messages - sorted by timestamp for chronological order
+                        ForEach(Array((chatManager?.currentSession?.messages.sorted { $0.timestamp < $1.timestamp } ?? []).enumerated()), id: \.element.id) { index, message in
+                            ChatBubble(
+                                message: message,
+                                showTimestamp: shouldShowTimestamp(
+                                    for: message,
+                                    at: index,
+                                    in: chatManager?.currentSession?.messages.sorted { $0.timestamp < $1.timestamp } ?? []
+                                )
+                            )
+                            .id(message.id)
                         }
                         
                         // Typing indicator
@@ -53,9 +61,9 @@ struct ChatView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 20)
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: chatManager?.currentSession?.messages.count ?? 0) {
                     // Auto-scroll to bottom when new message arrives
-                    if let lastMessage = messages.last {
+                    if let lastMessage = chatManager?.currentSession?.messages.sorted(by: { $0.timestamp < $1.timestamp }).last {
                         withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
@@ -93,20 +101,16 @@ struct ChatView: View {
         .background(Color(.systemBackground))
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if chatManager == nil {
+                chatManager = ChatManager(modelContext: modelContext)
+            }
+        }
     }
     
     private func sendMessage() {
         let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
-        
-        // Add user message
-        let userMessage = ChatMessage(
-            id: UUID().uuidString,
-            text: trimmedText,
-            isFromUser: true,
-            timestamp: Date()
-        )
-        messages.append(userMessage)
         
         // Clear input
         inputText = ""
@@ -114,29 +118,38 @@ struct ChatView: View {
         // Show typing indicator
         isTyping = true
         
-        // Generate AI response
+        // Send message and get response via API
         Task {
-            await generateAIResponse(to: trimmedText)
+            await sendMessageViaAPI(trimmedText)
         }
     }
     
-    private func generateAIResponse(to userMessage: String) async {
-        // Simulate processing delay
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+    private func sendMessageViaAPI(_ message: String) async {
+        guard let chatManager = chatManager else { return }
         
+        // First, add the user message locally
         await MainActor.run {
-            isTyping = false
+            chatManager.addMessage(content: message, isFromUser: true)
+        }
+        
+        do {
+            // Send to API and get response
+            let response = try await chatManager.sendChatMessage(message)
             
-            // Generate response using Apple's on-device NL processing
-            let response = generateLocalResponse(for: userMessage)
-            
-            let aiMessage = ChatMessage(
-                id: UUID().uuidString,
-                text: response,
-                isFromUser: false,
-                timestamp: Date()
-            )
-            messages.append(aiMessage)
+            await MainActor.run {
+                isTyping = false
+                // Response is already added to chat by the manager in sendChatMessage
+            }
+        } catch {
+            await MainActor.run {
+                isTyping = false
+                // Add error message
+                chatManager.addMessage(
+                    content: "Sorry, I couldn't process your message. Please try again.",
+                    isFromUser: false
+                )
+            }
+            print("Error sending chat message: \(error)")
         }
     }
     
@@ -177,42 +190,128 @@ struct ChatView: View {
         // Default empathetic response
         return "Thank you for sharing that with me. I'm here to listen and support you. Your feelings and experiences matter. How can I help you process what you're going through? 🌿"
     }
+    
+    private func shouldShowTimestamp(for message: ChatMessage, at index: Int, in messages: [ChatMessage]) -> Bool {
+        // Always show timestamp for first message
+        if index == 0 {
+            return true
+        }
+        
+        // Get previous message
+        let previousMessage = messages[index - 1]
+        
+        // Show timestamp if more than 5 minutes have passed
+        let timeDifference = message.timestamp.timeIntervalSince(previousMessage.timestamp)
+        if timeDifference > 300 { // 5 minutes
+            return true
+        }
+        
+        // Show timestamp if it's a different day
+        let calendar = Calendar.current
+        if !calendar.isDate(message.timestamp, inSameDayAs: previousMessage.timestamp) {
+            return true
+        }
+        
+        return false
+    }
 }
 
-struct ChatMessage: Identifiable, Equatable {
-    let id: String
-    let text: String
-    let isFromUser: Bool
-    let timestamp: Date
-}
+// Note: ChatMessage is now defined in Models/ChatMessage.swift
 
 struct ChatBubble: View {
     let message: ChatMessage
+    let showTimestamp: Bool
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragging = false
     
     var body: some View {
-        HStack {
-            if message.isFromUser {
-                Spacer()
-                
-                Text(message.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(20, corners: [.topLeft, .topRight, .bottomLeft])
-                    .frame(maxWidth: 280, alignment: .trailing)
-            } else {
-                Text(message.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(Color(.systemGray5))
-                    .foregroundColor(.primary)
-                    .cornerRadius(20, corners: [.topLeft, .topRight, .bottomRight])
-                    .frame(maxWidth: 280, alignment: .leading)
-                
-                Spacer()
+        VStack(spacing: 4) {
+            // Show timestamp if it's been a while since last message
+            if showTimestamp {
+                Text(formatTimestamp(message.timestamp))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
             }
+            
+            HStack(alignment: .bottom, spacing: 8) {
+                if message.isFromUser {
+                    Spacer()
+                    
+                    // Hidden timestamp that appears on drag
+                    if isDragging || dragOffset < -20 {
+                        Text(formatTime(message.timestamp))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .animation(.easeOut(duration: 0.2), value: isDragging)
+                    }
+                    
+                    Text(message.content)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(20, corners: [.topLeft, .topRight, .bottomLeft])
+                        .frame(maxWidth: 280, alignment: .trailing)
+                } else {
+                    Text(message.content)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color(.systemGray5))
+                        .foregroundColor(.primary)
+                        .cornerRadius(20, corners: [.topLeft, .topRight, .bottomRight])
+                        .frame(maxWidth: 280, alignment: .leading)
+                    
+                    // Hidden timestamp that appears on drag
+                    if isDragging || dragOffset < -20 {
+                        Text(formatTime(message.timestamp))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                            .animation(.easeOut(duration: 0.2), value: isDragging)
+                    }
+                    
+                    Spacer()
+                }
+            }
+            .offset(x: dragOffset)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        withAnimation(.interactiveSpring()) {
+                            // Only allow dragging to the left to reveal timestamps
+                            dragOffset = min(0, value.translation.width)
+                            isDragging = true
+                        }
+                    }
+                    .onEnded { _ in
+                        withAnimation(.spring()) {
+                            dragOffset = 0
+                            isDragging = false
+                        }
+                    }
+            )
         }
+    }
+    
+    private func formatTimestamp(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDateInToday(date) {
+            return "Today"
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
+            return date.formatted(.dateTime.weekday(.wide))
+        } else {
+            return date.formatted(date: .abbreviated, time: .omitted)
+        }
+    }
+    
+    private func formatTime(_ date: Date) -> String {
+        return date.formatted(date: .omitted, time: .shortened)
     }
 }
 

@@ -40,7 +40,13 @@ class TextState {
         
         if let entries = try? context.fetch(descriptor) {
             for entry in entries {
-                texts[entry.category] = entry.text
+                // Load all category texts from the entry
+                for category in Category.allCases {
+                    let text = entry.getText(for: category)
+                    if !text.isEmpty {
+                        texts[category] = text
+                    }
+                }
             }
         }
     }
@@ -65,9 +71,14 @@ class TextState {
         
         // Find existing entry for this category (without date filtering for simpler predicate)
         let woundIDString = woundID.rawValue
+        // Find today's entry for this wound
+        let dayStart = Calendar.current.startOfDay(for: currentDate ?? Date())
+        guard let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) else { return }
+        
         let predicate = #Predicate<CorePatchEntry> { entry in
             entry.woundIDRaw == woundIDString &&
-            entry.category == category
+            entry.createdAt >= dayStart &&
+            entry.createdAt < dayEnd
         }
         let descriptor = FetchDescriptor<CorePatchEntry>(predicate: predicate, sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
         
@@ -75,20 +86,19 @@ class TextState {
             if trimmed.isEmpty {
                 context.delete(existingEntry)
                 texts.removeValue(forKey: category)
-            } else if existingEntry.text != trimmed {
-                existingEntry.text = trimmed
+            } else if existingEntry.getText(for: category) != trimmed {
+                existingEntry.setText(trimmed, for: category)
             }
         } else if !trimmed.isEmpty {
-            let newEntry = CorePatchEntry(text: trimmed,
-                                        category: category,
-                                        woundID: woundID,
-                                        createdAt: Date())
+            let newEntry = CorePatchEntry(woundID: woundID, createdAt: Date())
+            newEntry.setText(trimmed, for: category)
             context.insert(newEntry)
         }
         
         do {
             try context.save()
             print("TextState: Saved text for \(category)")
+            NotificationCenter.default.post(name: .corePatchEntryDidChange, object: nil)
         } catch {
             print("TextState: Save error - \(error)")
         }
