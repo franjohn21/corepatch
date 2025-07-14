@@ -75,12 +75,6 @@ jobs:
           exit 1
         fi
         
-    - name: Install Apple certificates
-      uses: apple-actions/import-codesign-certs@v2
-      with:
-        p12-file-base64: ${{ secrets.CERTIFICATES_P12 }}
-        p12-password: ${{ secrets.CERTIFICATES_PASSWORD }}
-        
     - name: Setup App Store Connect API
       run: |
         # Create API key file for App Store Connect
@@ -100,7 +94,10 @@ jobs:
         xcodebuild -project CorePatch.xcodeproj \
           -scheme CorePatch \
           -configuration Release \
+          -destination "generic/platform=iOS" \
           -archivePath "build/CorePatch-${{ steps.env.outputs.ENVIRONMENT }}.xcarchive" \
+          -allowProvisioningUpdates \
+          DEVELOPMENT_TEAM=9P4ZDGDV34 \
           archive
           
     - name: Export IPA
