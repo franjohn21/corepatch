@@ -13,48 +13,53 @@ struct ContentView: View {
     @Query(filter: #Predicate<UserCoreWound> { $0.isActive == true })
     private var activeWounds: [UserCoreWound]
 
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showCoreWoundSheet = false
     @State private var showingSettings = false
 
     var body: some View {
-        NavigationStack {
-            TabView {
-                HomeView()
-                    .tabItem {
-                        Image(systemName: "house")
-                        Text("Home")
-                    }
+        if !hasCompletedOnboarding {
+            OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
+        } else {
+            NavigationStack {
+                TabView {
+                    HomeView()
+                        .tabItem {
+                            Image(systemName: "house")
+                            Text("Home")
+                        }
 
-                HistoryView()
-                    .tabItem {
-                        Image(systemName: "calendar")
-                        Text("Progress")
-                    }
+                    HistoryView()
+                        .tabItem {
+                            Image(systemName: "calendar")
+                            Text("Progress")
+                        }
 
-                ChatView()
-                    .tabItem {
-                        Image(systemName: "message")
-                        Text("Chat")
-                    }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
+                    ChatView()
+                        .tabItem {
+                            Image(systemName: "message")
+                            Text("Chat")
+                        }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
                     }
                 }
             }
+            .sheet(isPresented: $showCoreWoundSheet) {
+                CoreWoundSelectionView()
+            }
+            .sheet(isPresented: $showingSettings) {
+                AppSettingsView()
+            }
+            .onAppear { updateSheetState() }
+            .onChange(of: activeWounds) { _, _ in updateSheetState() }
         }
-        .sheet(isPresented: $showCoreWoundSheet) {
-            CoreWoundSelectionView()
-        }
-        .sheet(isPresented: $showingSettings) {
-            AppSettingsView()
-        }
-        .onAppear { updateSheetState() }
-        .onChange(of: activeWounds) { _, _ in updateSheetState() }
     }
 
     private func updateSheetState() {

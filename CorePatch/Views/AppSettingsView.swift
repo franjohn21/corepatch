@@ -4,6 +4,7 @@ import SwiftData
 struct AppSettingsView: View {
     // Persisted name
     @AppStorage("userName") private var userName: String = ""
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
     
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var feedbackManager: FeedbackManagerWrapper
@@ -60,6 +61,15 @@ struct AppSettingsView: View {
                         }
                     }
                     .disabled(activeWound == nil)
+                    
+                    Button(action: { 
+                        hasCompletedOnboarding.toggle()
+                    }) {
+                        HStack {
+                            Image(systemName: hasCompletedOnboarding ? "eye.slash" : "eye")
+                            Text(hasCompletedOnboarding ? "Show Onboarding" : "Hide Onboarding")
+                        }
+                    }
                     
                     if activeWound == nil {
                         Text("Select a core wound first")
