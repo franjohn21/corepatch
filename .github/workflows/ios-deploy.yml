@@ -25,13 +25,18 @@ env:
 jobs:
   deploy:
     name: Deploy to TestFlight
-    runs-on: macos-latest
+    runs-on: macos-15
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        
+    - name: Check available Xcode versions
+      run: |
+        ls /Applications/ | grep -i xcode
+        xcodebuild -version
         
     - name: Determine environment
       id: env
