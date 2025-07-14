@@ -18,14 +18,6 @@ on:
         description: 'Release notes for TestFlight - required for production'
         required: false
         type: string
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'CorePatch/**'
-      - '.github/workflows/ios-deploy.yml'
-  push:
-    tags:
-      - 'v*'
 
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -84,13 +76,11 @@ jobs:
         p12-file-base64: ${{ secrets.CERTIFICATES_P12 }}
         p12-password: ${{ secrets.CERTIFICATES_PASSWORD }}
         
-    - name: Install provisioning profiles
-      uses: apple-actions/download-provisioning-profiles@v1
-      with:
-        bundle-id: com.pleaseclapapps.mobile.CorePatch
-        issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-        api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-        api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+    - name: Setup App Store Connect API
+      run: |
+        # Create API key file for App Store Connect
+        mkdir -p ~/private_keys
+        echo "${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}" > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
         
     - name: Set build number
       run: |
